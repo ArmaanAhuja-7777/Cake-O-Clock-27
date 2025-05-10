@@ -1,41 +1,84 @@
-const User = require('../models/user');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const User = require('../models/user');
 
+// Signup user and return JWT token
 exports.signup = async (req, res) => {
+  const { name, email, password, phone, addresses, role } = req.body;
+
   try {
-    const {name, email, password, phone, addresses, isAdmin} = req.body;
+    // Check if the user already exists
+    const userExists = await User.findOne({ email });
+    if (userExists) {
+      return res.status(400).json({ error: 'User already exists' });
+    }
 
-    const existingUser = await User.findOne({ email });
-    if (existingUser) return res.status(400).json({ error: 'Email already registered' });
-
+    // Hash the password before saving it to the database
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const newUser = new User({name, email, password: hashedPassword, phone, addresses, isAdmin});
+    // Create a new user
+    const newUser = new User({
+      name,
+      email,
+      password: hashedPassword,
+      phone,
+      addresses,
+      role: role || 'customer', // Default to 'customer' if no role is provided
+    });
+
+    // Save the new user to the database
     await newUser.save();
 
-    const token = jwt.sign({ userId: newUser._id }, process.env.JWT_SECRET || 'secret', { expiresIn: '1d' });
+    // Generate JWT token for the user (using the user ID, email, and role)
+    const token = jwt.sign(
+      { id: newUser._id, email: newUser.email, role: newUser.role },
+      process.env.JWT_SECRET || 'secret', // Use JWT secret from environment
+      { expiresIn: '1h' } // Token expires in 1 hour
+    );
 
-    res.status(201).json({ message: 'Signup successful', token });
+    // Return the response with the token
+    res.status(201).json({
+      message: 'User registered successfully',
+      token: token, // Send the generated JWT token in the response
+    });
   } catch (err) {
-    res.status(500).json({ error: 'Signup failed' });
+    console.error(err);
+    res.status(500).json({ error: 'Server error during signup' });
   }
 };
 
+// Login user and return JWT token
 exports.login = async (req, res) => {
+  const { email, password } = req.body;
+
   try {
-    const { email, password } = req.body;
-
+    // Find the user by email
     const user = await User.findOne({ email });
-    if (!user) return res.status(404).json({ error: 'User not found' });
 
+    if (!user) {
+      return res.status(400).json({ error: 'Invalid credentials' });
+    }
+
+    // Check if the password is correct
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(401).json({ error: 'Invalid credentials' });
+    if (!isMatch) {
+      return res.status(400).json({ error: 'Invalid credentials' });
+    }
 
-    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET || 'secret', { expiresIn: '1d' });
+    // Generate JWT token (you can add user information to the payload)
+    const token = jwt.sign(
+      { id: user._id, email: user.email, role: user.role },
+      process.env.JWT_SECRET || 'secret', // JWT secret
+      { expiresIn: '1h' } // Token expires in 1 hour
+    );
 
-    res.status(200).json({ message: 'Login successful', token });
+    // Send the token in the response
+    res.status(200).json({
+      message: 'Login successful',
+      token: token, // This is the JWT token
+    });
   } catch (err) {
-    res.status(500).json({ error: 'Login failed' });
+    console.error(err);
+    res.status(500).json({ error: 'Server error during login' });
   }
 };
